@@ -4,10 +4,22 @@ Program NPVol
 ! Calulate the volume of a nanoparticle using Monte Carlo integration.|
 !/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\
 
+#ifdef _OPENMP
+    use omp_lib ! Use the OpenMP module
+#endif
+
 ! Increment preprocessor macro
 #define INCREMENT(X) X = X + 1
 
     Implicit None
+
+#ifdef _MPI
+    include "mpif.h" ! Include the MPI headers
+    Integer :: itmp
+    Integer :: mpierr
+    Integer :: myRank
+    Integer :: nTasks
+#endif
 
     Integer,     Parameter :: KINDR = KIND(0d0)        ! Double precision
     Integer,     Parameter :: NUM_PROBES_IN_LOOP = 100 ! Probes per sample
@@ -26,6 +38,8 @@ Program NPVol
     Integer :: nSamples ! Number of Monte Carlo sample points
     Integer :: hSum     ! Number of hits found for this sample
     Integer :: readstat ! Read status
+    Integer :: lowSamp  ! Low sample for this processor
+    Integer :: highSamp ! High sample for this processor
 
     Integer :: rng_state(4)               ! Random number generator state
     Integer :: iTouch(NUM_PROBES_IN_LOOP) ! # atoms this probe touches
@@ -44,7 +58,8 @@ Program NPVol
     Real(KINDR) :: volume       ! Nanoparticle bolume
     Real(KINDR) :: probe(3,NUM_PROBES_IN_LOOP) ! The probe positions
 
-    Logical     :: lfound(NUM_PROBES_IN_LOOP)  ! Is this probe in an atom?
+    Logical :: isMom ! Is the mother processer
+    Logical :: lfound(NUM_PROBES_IN_LOOP)  ! Is this probe in an atom?
 
     Character(1)   :: option   ! Command line options
     Character(80)  :: optarg   ! Command line arguments
@@ -63,12 +78,34 @@ Program NPVol
 !   Create the global variable
     Type(GlobalType) :: g
 
-!   ---------------
-!   Start the clock
-!   ---------------
+!   ----------------------------------------
+!   Start the clock and parallelization info
+!   ----------------------------------------
 
+#ifdef _MPI
+    call MPI_INIT (mpierr)
+    if (mpierr /= MPI_SUCCESS) call quit ('Error starting MPI')
+    start_t = REAL(MPI_WTIME(), KINDR)
+
+!   Get the total number of tasks and the rank of this node
+    call MPI_COMM_RANK (MPI_COMM_WORLD, myRank, mpierr)
+    call MPI_COMM_SIZE (MPI_COMM_WORLD, nTasks, mpierr)
+
+!   Determine if this task is the mother or not
+    if (myRank == 0) then
+        isMom = .true.
+    else
+        isMom = .false.
+    end if
+#else
+#ifdef _OPENMP
+    start_t = REAL(omp_get_wtime(), KINDR)
+#else
     call SYSTEM_CLOCK (COUNT=time, COUNT_RATE=rate)
     start_t = REAL(time, KINDR) / REAL(rate, KINDR)
+#endif
+    isMom = .true. ! Always true for OpenMP and serial
+#endif
 
 !   ---------------------------
 !   Interperet the command line
@@ -85,15 +122,13 @@ Program NPVol
             case ('>')
                 Exit
             case ('!')
-                write (*,'(a)') "Unknown option '" // TRIM(optarg) // &
-                                "'.  Use '-h' or '-?' for help."
-                stop
+                call quit ("Unknown option '" // TRIM(optarg) // &
+                           "'.  Use '-h' or '-?' for help.")
             case ('s')
 !               The number of samples
-                read(optarg,'(i)', iostat=readstat) nSamples
+                read(optarg, *, iostat=readstat) nSamples
                 if (readstat /= 0) then
-                    write(*,*) 'Given number of samples must be an integer'
-                    stop
+                    call quit ('Given number of samples must be an integer')
                 end if
             case ('b')
                 g%lbohr = .true.
@@ -105,20 +140,17 @@ Program NPVol
                 if (filename .eq. '') then
                     filename = optarg
                 else
-                    write (*,'(a)') 'Only one XYZ file allowed.' // &
-                                    "'.  Use '-h' or '-?' for help."
-                    stop
+                    call quit ('Only one XYZ file allowed.' // &
+                               "'.  Use '-h' or '-?' for help.")
                 end if
             case default
-                write (*,'(a)') 'Unknown error in options parsing.'
-                stop
+                call quit ('Unknown error in options parsing.')
         end select
     end do
 
 !   Make sure a filename was given
     if (filename .eq. '') then
-        write(*,'(a)') 'You must include an XYZ file for the coordinates.'
-        stop
+        call quit ('You must include an XYZ file for the coordinates.')
     end if
 
 !   ----------------------------------------------------
@@ -154,8 +186,24 @@ Program NPVol
     totvol = PRODUCT(box(:))
 
 !   Seed the random number generator based on the clock time
+!   Set the samples on this processor
     call SYSTEM_CLOCK (COUNT=time)
+#ifdef _MPI
+    rng_state = rng_seed(932117 + time + myRank)
+
+!   Determine how to distribute the samples over the nodes
+    if (nTasks <= 1) then
+        lowSamp  = 1
+        highSamp = nSamples
+    else
+        lowSamp  = 1 + ( myRank * nSamples )      / nTasks
+        highSamp = ( ( myRank + 1 ) *  nSamples ) / nTasks
+    end if
+#else
     rng_state = rng_seed(932117 + time)
+    lowSamp  = 1
+    highSamp = nSamples
+#endif
 
 !   ------------------------------
 !   Perform the volume integration
@@ -163,11 +211,11 @@ Program NPVol
 
 !   Determine the volume using a monte carlo algorithm.
     nHits = 0
-!$OMP PARALLEL DO DEFAULT(SHARED)                        &
-!$OMP             PRIVATE(probe, dist, iAtom, r, iTouch, &
-!$OMP                     i, lfound, atomRad)       &
+!$OMP PARALLEL DO DEFAULT(SHARED)                              &
+!$OMP             PRIVATE(probe, dist, iAtom, r, iTouch,       &
+!$OMP                     lfound, hSum, atomRad, atomProbeRad) &
 !$OMP             REDUCTION(+:nHits)
-    samples_: do iSamp = 1, nSamples
+    samples_: do iSamp = lowSamp, highSamp
 
 !       Grab a random number for the x, y, and z value of the probe(s)
 !       Place these points in the box
@@ -432,13 +480,20 @@ Program NPVol
             CHECK_IF_PROBE_TOUCHES_ATOM(iAtom, 99)
             CHECK_IF_PROBE_TOUCHES_ATOM(iAtom, 100)
 
-           If all probes are hit, skip to next sample
+!           If all probes are hit, skip to next sample
             if (hSum == NUM_PROBES_IN_LOOP) exit atoms_
 
         end do atoms_
 
     end do samples_
 !$OMP END PARALLEL DO
+#ifdef _MPI
+!   Collect the totals from all processes
+    itmp = nHits
+    call MPI_ALLREDUCE (itmp, nHits, 1, MPI_INTEGER, &
+                        MPI_SUM, MPI_COMM_WORLD, mpierr)
+    if (mpierr /= MPI_SUCCESS) call quit ('Could not reduce nHits')
+#endif
 
 !   --------
 !   Clean up
@@ -449,15 +504,25 @@ Program NPVol
     volume = volume * totvol * BOHR2NM**3
 
 !   End the clock
+#ifdef _MPI
+    tot_t = REAL(MPI_WTIME(), KINDR) - start_t
+#else
+#ifdef _OPENMP
+    tot_t = REAL(omp_get_wtime(), KINDR) - start_t
+#else
     call SYSTEM_CLOCK (COUNT=time, COUNT_RATE=rate)
     tot_t = ( REAL(time, KINDR) / REAL(rate, KINDR) ) - start_t
+#endif
+#endif
 
 !   Write the results to screen
-    write(*,'(A14,1X,I10)')         '# Samples    :', nSamples
-    write(*,'(A14,1X,ES10.4,1X,A)') 'Volume       :', volume, 'nm^3'
-    write(*,'(A14,1X,F10.4,1X,A)')  'Elapsed Time :', tot_t, 'seconds'
+    if (isMom) then
+        write(*,'(A14,1X,I10)')         '# Samples    :', nSamples
+        write(*,'(A14,1X,ES10.4,1X,A)') 'Volume       :', volume, 'nm^3'
+        write(*,'(A14,1X,F10.4,1X,A)')  'Elapsed Time :', tot_t, 'seconds'
+    end if
 
-    deallocate(g%rad, g%name, g%xyz)
+    call quit ('NORMAL TERMINATION')
 
 Contains
 
@@ -484,7 +549,7 @@ Contains
         Integer                  :: argc
         Character(80)            :: arg
         Character(1)             :: okey
-        Integer, External        :: iargc
+        Integer, Intrinsic       :: iargc
         Integer                  :: optstr_len
         Integer, Save            :: optstr_ind
         Integer, Save            :: opt_index = 1
@@ -572,64 +637,83 @@ Contains
         Character(160)             :: radline  ! The line with the radii
         Logical                    :: lfound(100)   ! Was this element found
 
-
         Integer, Parameter         :: iufile = 100 ! File unit number
 
 !       Open the file.
-        open(iufile, file=TRIM(filename), iostat=openstat, status='old')
-        if (openstat /= 0) Then 
-            write(*,*) "Error opening file '" // TRIM(filename) // "'."
-            stop
+        if (isMom) then
+            open(iufile, file=TRIM(filename), iostat=openstat, status='old')
+            if (openstat /= 0) Then 
+                call quit ("Error opening file '" // TRIM(filename) // "'.")
+            end if
+
+!           Read in the number of atoms
+            read(iufile, *, iostat=readstat) g%nAtoms
+            if (readstat /= 0) then
+                call quit ("Error reading number of atoms from file '" // &
+                           TRIM(filename) // "'.")
+            end if
+
+!           Read the line with the radii on it
+            read(iufile,'(a160)', iostat=readstat) radline
+            if (readstat /= 0) then
+                call quit ("Error reading number of atomic radii from file '" // &
+                           TRIM(filename) // "'.")
+            else if (LEN_TRIM(radline) == 0) then
+                call quit ("Missing atomic radii in file '" // TRIM(filename) // &
+                           "'.")
+            end if
         end if
 
-!       Read in the number of atoms
-        read(iufile, '(i)', iostat=readstat) g%nAtoms
-        if (readstat /= 0) then
-            write(*,*) "Error reading number of atoms from file '" // &
-                       TRIM(filename) // "'."
-            stop
-        end if
-
-!       Read the line with the radii on it
-        read(iufile,'(a160)', iostat=readstat) radline
-        if (readstat /= 0) then
-            write(*,*) "Error reading number of atomic radii from file '" // &
-                       TRIM(filename) // "'."
-            stop
-        else if (LEN_TRIM(radline) == 0) then
-            write(*,*) "Missing atomic radii in file '" // TRIM(filename) // &
-                       "'."
-            stop
-        end if
+#ifdef _MPI
+        call MPI_BARRIER (MPI_COMM_WORLD, mpierr)
+!       Broadcast the number of atoms and radline to all processors
+        call MPI_BCAST (g%nAtoms, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, mpierr)
+        if (mpierr /= MPI_SUCCESS) call quit ('Could not broadcast nAtoms')
+        call MPI_BCAST (radline, 160, MPI_CHARACTER, 0, MPI_COMM_WORLD, mpierr)
+        if (mpierr /= MPI_SUCCESS) call quit ('Could not broadcast radline')
+#endif
 
 !       Allocate memory for the system
         allocate(g%name(g%nAtoms))
         allocate(g%xyz(3,g%nAtoms))
         allocate(g%rad(g%nAtoms))
 
-!       Read the coordinates.
-        do i = 1, g%nAtoms
-            read(iufile,'(a160)', iostat=readstat) line
-!           Make sure there is more to read
-            if (readstat /= 0) then
-                write(*,*) 'Given no. of atoms larger than actual no. of ' // &
-                           "atoms in '" // TRIM(filename) // "'."
-                stop
-            end if
-!           Read each atom's coordinates
-            read(line,*) g%name(i), g%xyz(1:3,i)
-        end do
+        if (isMom) then
+!           Read the coordinates.
+            do i = 1, g%nAtoms
+                read(iufile,'(a160)', iostat=readstat) line
+!               Make sure there is more to read
+                if (readstat /= 0) then
+                    call quit ('Given no. of atoms larger than actual ' // &
+                               "no. of atoms in '" // TRIM(filename) // "'.")
+                end if
+!               Read each atom's coordinates
+                read(line,*) g%name(i), g%xyz(1:3,i)
+            end do
 
-!       Make sure there is no more to read
-        read(iufile,'(a160)', iostat=readstat) line
-        if (readstat == 0) then          
-            write(*,*) 'Actual no. of atoms larger than given no. of' // &
-                       "atoms for '" // TRIM(filename) // "'."
-            stop
+!           Make sure there is no more to read
+            read(iufile,'(a160)', iostat=readstat) line
+            if (readstat == 0) then          
+                call quit ('Actual no. of atoms larger than given no. of' // &
+                           "atoms for '" // TRIM(filename) // "'.")
+            end if
+
+!           Close the file
+            close(iufile)
         end if
 
-!       Close the file
-        close(iufile)
+#ifdef _MPI
+        call MPI_BARRIER (MPI_COMM_WORLD, mpierr)
+!       Broadcast the coordinates and atom names to all processers
+        call MPI_BCAST (g%xyz, 3*g%nAtoms, MPI_DOUBLE_PRECISION, 0, &
+                        MPI_COMM_WORLD, mpierr)
+        if (mpierr /= MPI_SUCCESS) call quit ('Could not broadcast xyz')
+        do iAtom = 1, g%nAtoms
+            call MPI_BCAST (g%name(iAtom), 2, MPI_CHARACTER, 0, &
+                            MPI_COMM_WORLD, mpierr)
+            if (mpierr /= MPI_SUCCESS) call quit ('Could not broadcast name')
+        end do
+#endif
 
 !       ----------------------------------------
 !       Assign the radii in the proper locations
@@ -654,26 +738,23 @@ Contains
             indx = INDEX(line, '=')
 !           It is an error if there is no '='
             if (indx == 0) then
-                write(*,*) 'Error reading atomic radii in file "' // &
-                            TRIM(filename) // "'."
-                stop
+                call quit ('Error reading atomic radii in file "' // &
+                            TRIM(filename) // "'.")
             end if
 !           Read the next element and the radii
             INCREMENT(nElem)
             elements(nElem) = line(1:indx-1)
-            read(line(indx+1:),'(f)', iostat=readstat) radii(nElem)
+            read(line(indx+1:), *, iostat=readstat) radii(nElem)
             if (readstat /= 0) then
-                write(*,*) 'Given radii not a float in file "' // &
-                            TRIM(filename) // "'."
-                stop
+                call quit ('Given radii not a float in file "' // &
+                            TRIM(filename) // "'.")
             end if
         end do
 
 !       If no elements were found, end in error
         if (nElem == 0) then
-            write(*,*) 'No atomic radii were found in file "' // &
-                        TRIM(filename) // "'."
-            stop
+            call quit ('No atomic radii were found in file "' // &
+                        TRIM(filename) // "'.")
         end if
 
 !       Match the radii to the names found in the coordinates
@@ -689,9 +770,8 @@ Contains
 
 !       Make sure all atoms got a radii
         if (ANY(g%rad == ZERO)) then
-            write(*,*) 'Not all atomic radii were define in file "' // &
-                        TRIM(filename) // "'."
-            stop
+            call quit ('Not all atomic radii were defined in file "' // &
+                        TRIM(filename) // "'.")
         end if
 
 !       Convert to Angstroms if necessary
@@ -769,37 +849,71 @@ Contains
 
     End Function rng_uniform3
 
+    Subroutine quit (msg)
+
+!       =============================
+!       Cleanly exits the calculation
+!       =============================
+
+        Character(*), Intent(In) :: msg
+#ifdef _MPI
+        Integer :: idummy
+#endif
+
+!       Deallocate the allocatables
+        if (ALLOCATED(g%xyz)) deallocate(g%rad, g%name, g%xyz)
+
+#ifdef _MPI
+!       For MPI, use proper MPI routine to clean up.
+        if (msg .eq. 'NORMAL TERMINATION') then
+            call MPI_FINALIZE (mpierr)
+        else
+            if (isMom) write(*,*) msg
+            call MPI_ABORT (MPI_COMM_WORLD, mpierr, idummy)
+        end if
+#else
+!       If not MPI, force quit if not normally terminating
+        if (msg .ne. 'NORMAL TERMINATION') then
+            write(*,*) msg
+        end if
+#endif
+        stop
+
+    End Subroutine quit
+
     Subroutine Help ()
 
 !       =========
 !       Help info
 !       =========
 
-        write(*,*)
-        write(*,*) 'Program NPVol'
-        write(*,*) 'Calcualte the volume of a nanoparticle using'
-        write(*,*) 'Monte Carlo integration'
-        write(*,*) 
-        write(*,*) 'Simply give an XYZ file containing the coordinates'
-        write(*,*) 'of your nanoparticle and the atomic radii and this will'
-        write(*,*) 'determine the volume of your system.  The radii are given'
-        write(*,*) 'on the second line of the file in the comment section, '
-        write(*,*) 'with the syntax "Ag=1.445 Au=1.445".  It is assumed that'
-        write(*,*) 'the units are angstroms.'
-        write(*,*)
-        write(*,*) 'Options:'
-        write(*,*) '-s NSAMPLES'
-        write(*,*) '   Use this option to change the number of Monte Carlo'
-        write(*,*) '   sample points that are used.  The default is based'
-        write(*,*) '   on the number of atoms in the system'
-        write(*,*)
-        write(*,*) '-b'
-        write(*,*) '   This changes the unit read in from Angstrom to Bohr'
-        write(*,*)
-        write(*,*) 'Author: Seth M. Morton'
-        write(*,*)
+        if (isMom) then
+            write(*,*)
+            write(*,*) 'Program NPVol'
+            write(*,*) 'Calcualte the volume of a nanoparticle using'
+            write(*,*) 'Monte Carlo integration'
+            write(*,*) 
+            write(*,*) 'Simply give an XYZ file containing the coordinates'
+            write(*,*) 'of your nanoparticle and the atomic radii and this '
+            write(*,*) 'will determine the volume of your system.  The radii '
+            write(*,*) 'are given on the second line of the file in the '
+            write(*,*) 'comment section with the syntax "Ag=1.445 Au=1.445".'
+            write(*,*) 'It is assumed that the units are Angstroms.'
+            write(*,*)
+            write(*,*) 'Options:'
+            write(*,*) '-s NSAMPLES'
+            write(*,*) '   Use this option to change the number of Monte Carlo'
+            write(*,*) '   sample points that are used.  The default is based'
+            write(*,*) '   on the number of atoms in the system'
+            write(*,*)
+            write(*,*) '-b'
+            write(*,*) '   This changes the unit read in from Angstrom to Bohr'
+            write(*,*)
+            write(*,*) 'Author: Seth M. Morton'
+            write(*,*)
+        end if
 
-        stop
+        call quit ('NORMAL TERMINATION')
 
     End Subroutine Help
 

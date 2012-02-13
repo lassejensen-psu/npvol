@@ -1,0 +1,35 @@
+This file makes heavy use of preprocesser conditionals and macros.  Your
+compiler must support the preprocessor.  If it does not, you can run it
+through the standard C preprocessor.
+
+Below is a list of the recommended compiler invocations for various compilers
+and compile types.  Because of the way the loops are constructed, I have found
+that -O2 is actiually quite a bit faster than -O3.
+
+Additionally, the macros cause line lengths greater than 132, so you must tell
+your compiler to accept arbitarily long lines.
+
+Rember, with MPI you must execute the program with mpirun or mpiexec!
+
+I have done the best I can in finding as many compiler and MPI variants as I
+have available to me.
+
+Serial compilation:
+
+ifort -O2 npvol.F90 -o NPVol
+gfortran -O2 -ffree-line-length-none npvol.F90 -o NPVol 
+
+OpenMP compilation:
+
+ifort -O2 -openmp npvol.F90 -o NPVol
+gfortran -O2 -fopenmp -ffree-line-length-none npvol.F90 -o NPVol 
+
+OpenMPI compilation:
+
+OMPI_FC=ifort mpif90 -O2 -D_MPI npvol.F90 -o NPVol
+OMPI_FC=gfortran mpif90 -O2 -D_MPI -ffree-line-length-none npvol.F90 -o NPVol
+
+MPICH compilation
+
+mpif90 -f90=ifort -O2 -D_MPI npvol.F90 -o NPVol
+mpif90 -f90=gfortran -O2 -D_MPI -ffree-line-length-none npvol.F90 -o NPVol
