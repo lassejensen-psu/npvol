@@ -23,6 +23,8 @@ Program NPVol
 
     Integer,     Parameter :: KINDR = KIND(0d0)        ! Double precision
     Integer,     Parameter :: NUM_PROBES_IN_LOOP = 100 ! Probes per sample
+    Integer,     Parameter :: DEFAULT_NSAMPLES = 10**6 ! Min samples by default
+    Integer,     Parameter :: MULTIPLIER = 50          ! For samples test
     Real(KINDR), Parameter :: ANGSTROM2NM = 1.0E-1_KINDR
     Real(KINDR), Parameter :: BOHR2ANGSTROM = 0.52917720859_KINDR
     Real(KINDR), Parameter :: ANGSTROM2BOHR = 1.0E0_KINDR / BOHR2ANGSTROM
@@ -34,6 +36,7 @@ Program NPVol
     Integer :: rate     ! Clock rate
     Integer :: iAtom    ! This atom
     Integer :: iSamp    ! This sample
+    Integer :: iProbe   ! This probe
     Integer :: nHits    ! Number of hits total
     Integer :: nSamples ! Number of Monte Carlo sample points
     Integer :: hSum     ! Number of hits found for this sample
@@ -165,7 +168,16 @@ Program NPVol
 
 !   If a certain number of samples was not requested, base the number of samples
 !   on the number of atoms in the system.
-    if (nSamples == 0) nSamples = MAX(g%nAtoms * 25, 10000)
+    if (nSamples == 0) nSamples = MAX(g%nAtoms * MULTIPLIER, DEFAULT_NSAMPLES)
+!   The below is equivalent to rounding up to the nearest
+!   NUM_PROBES_IN_LOOP and then dividing by NUM_PROBES_IN_LOOP.
+!   This is done to account for the unrolling in the main loop.
+    nSamples = CEILING(REAL(nSamples) / NUM_PROBES_IN_LOOP)
+
+!   Write the number of samples that will be used
+    if (isMom) then
+        write(*,'(A14,1X,I10)') '# Samples    :', nSamples * NUM_PROBES_IN_LOOP
+    end if
 
 !   The probeRad is defined such that if it is in the center of a cube with a
 !   sphere on each corner, it will be slightly intersecting with each sphere.
@@ -189,7 +201,7 @@ Program NPVol
 !   Set the samples on this processor
     call SYSTEM_CLOCK (COUNT=time)
 #ifdef _MPI
-    rng_state = rng_seed(932117 + time + myRank)
+    rng_state = rng_seed(932117 + time + myRank * 694257)
 
 !   Determine how to distribute the samples over the nodes
     if (nTasks <= 1) then
@@ -200,9 +212,15 @@ Program NPVol
         highSamp = ( ( myRank + 1 ) *  nSamples ) / nTasks
     end if
 #else
-    rng_state = rng_seed(932117 + time)
     lowSamp  = 1
     highSamp = nSamples
+!$OMP PARALLEL PRIVATE(rng_state, probe, dist, iAtom, r, iTouch, &
+!$OMP                  lfound, hSum, atomRad, atomProbeRad)
+#ifdef _OPENMP
+    rng_state = rng_seed(932117 + time + OMP_get_thread_num() * 694257)
+#else
+    rng_state = rng_seed(932117 + time)
+#endif
 #endif
 
 !   ------------------------------
@@ -211,14 +229,11 @@ Program NPVol
 
 !   Determine the volume using a monte carlo algorithm.
     nHits = 0
-!$OMP PARALLEL DO DEFAULT(SHARED)                              &
-!$OMP             PRIVATE(probe, dist, iAtom, r, iTouch,       &
-!$OMP                     lfound, hSum, atomRad, atomProbeRad) &
-!$OMP             REDUCTION(+:nHits)
+!$OMP DO REDUCTION(+:nHits)
     samples_: do iSamp = lowSamp, highSamp
 
 !       Grab a random number for the x, y, and z value of the probe(s)
-!       Place these points in the box
+!       Place these points in the box.  This loop is unrolled for speed.
         probe(:,1)   = box(:) * rng_uniform3(rng_state) + minbox(:)
         probe(:,2)   = box(:) * rng_uniform3(rng_state) + minbox(:)
         probe(:,3)   = box(:) * rng_uniform3(rng_state) + minbox(:)
@@ -486,7 +501,8 @@ Program NPVol
         end do atoms_
 
     end do samples_
-!$OMP END PARALLEL DO
+!$OMP END DO
+!$OMP END PARALLEL
 #ifdef _MPI
 !   Collect the totals from all processes
     itmp = nHits
@@ -517,7 +533,6 @@ Program NPVol
 
 !   Write the results to screen
     if (isMom) then
-        write(*,'(A14,1X,I10)')         '# Samples    :', nSamples
         write(*,'(A14,1X,ES10.4,1X,A)') 'Volume       :', volume, 'nm^3'
         write(*,'(A14,1X,F10.4,1X,A)')  'Elapsed Time :', tot_t, 'seconds'
     end if

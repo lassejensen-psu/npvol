@@ -3,16 +3,18 @@ compiler must support the preprocessor.  If it does not, you can run it
 through the standard C preprocessor.
 
 Below is a list of the recommended compiler invocations for various compilers
-and compile types.  Because of the way the loops are constructed, I have found
+and compile types.  You should be able to simply copy and paste.
+
+Because of the way the loops are constructed, I have found
 that -O2 is actiually quite a bit faster than -O3.
 
 Additionally, the macros cause line lengths greater than 132, so you must tell
-your compiler to accept arbitarily long lines.
+your compiler to accept arbitarily long lines (if it doesn't by default).
 
 Rember, with MPI you must execute the program with mpirun or mpiexec!
 
 I have done the best I can in finding as many compiler and MPI variants as I
-have available to me.
+have available to me.  If yours isn't listed, try to find similar flags.
 
 Serial compilation:
 
@@ -22,7 +24,7 @@ gfortran -O2 -ffree-line-length-none npvol.F90 -o NPVol
 OpenMP compilation:
 
 ifort -O2 -openmp npvol.F90 -o NPVol
-gfortran -O2 -fopenmp -ffree-line-length-none npvol.F90 -o NPVol 
+gfortran -O2 -fopenmp -lgomp -ffree-line-length-none npvol.F90 -o NPVol 
 
 OpenMPI compilation:
 
