@@ -24,8 +24,7 @@ Program NPVol
     Integer,     Parameter :: KINDR = KIND(0d0)        ! Double precision
     Integer,     Parameter :: NUM_PROBES_IN_LOOP = 100 ! Probes per sample
     Integer,     Parameter :: DEFAULT_NSAMPLES = 10**6 ! Min samples by default
-    Integer,     Parameter :: MULTIPLIER = 50          ! For samples test
-    Real(KINDR), Parameter :: DEFAULT_CUBE_LEN = 10.0_KINDR
+    Real(KINDR), Parameter :: DEFAULT_SIDE_LEN = 10.0_KINDR
     Real(KINDR), Parameter :: ANGSTROM2NM = 1.0E-1_KINDR
     Real(KINDR), Parameter :: BOHR2ANGSTROM = 0.52917720859_KINDR
     Real(KINDR), Parameter :: ANGSTROM2BOHR = 1.0E0_KINDR / BOHR2ANGSTROM
@@ -37,36 +36,30 @@ Program NPVol
     Integer :: rate     ! Clock rate
     Integer :: iAtom    ! This atom
     Integer :: iSamp    ! This sample
+    Integer :: iBox     ! This box
     Integer :: iProbe   ! This probe
-    Integer :: iDir     ! Cartesian direction
-    Integer :: iXYZ     ! Num in XYZ dir
-    Integer :: iCube    ! Current cube
-    Integer :: iFilled  ! Current filled cube
     Integer :: nHits    ! Number of hits total
+    Integer :: nBoxes   ! Number of boxes
     Integer :: nSamples ! Number of Monte Carlo sample points
     Integer :: hSum     ! Number of hits found for this sample
     Integer :: readstat ! Read status
-    Integer :: lowFilled  ! Low sample for this processor
-    Integer :: highFilled ! High sample for this processor
-    Integer :: atomlow  ! Low atom in this cube
-    Integer :: atomhigh ! High atom in this cube
-    Integer :: nCubes   ! Number of cubes
-    Integer :: nFilled  ! Number of filled cubes
-    Integer :: saveXYZ(3) ! Save a XYZ num
-    Integer :: iX, iY, iZ ! XYZ nums
-    Integer :: itmp, temptot
+    Integer :: lowSamp  ! Low sample for this processor
+    Integer :: highSamp ! High sample for this processor
+    Integer :: iSide    ! Longerst direction
+    Integer :: temptot  ! Used in sorting
+    Integer :: itmp     ! Jack of all trades
 
     Integer :: rng_state(4)               ! Random number generator state
     Integer :: iTouch(NUM_PROBES_IN_LOOP) ! # atoms this probe touches
-    Integer :: nCubeXYZ(3)                ! # cubes in a given direction
 
     Real(KINDR) :: start_t      ! Start time
     Real(KINDR) :: tot_t        ! Total time
-    Real(KINDR) :: cubebott(3)  ! Bottom of the cube
+    Real(KINDR) :: boxbott      ! Bottom of the cube
     Real(KINDR) :: maxbox(3)    ! Max box dimensions
     Real(KINDR) :: minbox(3)    ! Min box dimensions
-    Real(KINDR) :: halfBox(3)   ! Half in the box
     Real(KINDR) :: box(3)       ! The box size
+    Real(KINDR) :: subbox(3)    ! Subbox size
+    Real(KINDR) :: submin(3)    ! Subbox min side
     Real(KINDR) :: totvol       ! Total volume of the box
     Real(KINDR) :: probeRad     ! Radius of the probe
     Real(KINDR) :: atomRad      ! Current atom's radius
@@ -74,27 +67,28 @@ Program NPVol
     Real(KINDR) :: r(3)         ! Vector distance
     Real(KINDR) :: dist         ! Scalar distance
     Real(KINDR) :: volume       ! Nanoparticle bolume
-    Real(KINDR) :: cubeLen      ! Cube side length
-    Real(KINDR) :: xyz(3)       ! A position in space
+    Real(KINDR) :: sideLen      ! Side length
+    Real(KINDR) :: xyz          ! A position in space
     Real(KINDR) :: probe(3,NUM_PROBES_IN_LOOP) ! The probe positions
 
-    Integer,     Allocatable :: dir2num(:,:,:)  ! Num in dir to cube num
-    Integer,     Allocatable :: atomCubes(:)    ! The cubes the atoms belong to
-    Integer,     Allocatable :: orderedAtoms(:) ! Atoms ordered by cube number
-    Integer,     Allocatable :: temparr(:)
-    Integer,     Allocatable :: offsets(:)      ! Offsets for each cube in atom array
-    Integer,     Allocatable :: findx(:)        ! Correlate filled to all cubes
+    Integer, Allocatable :: sortIndx(:)   ! The cubes the atoms belong to
+    Integer, Allocatable :: boxbins(:)   ! The atoms in a cube
+    Integer, Allocatable :: offsets(:)    ! Atoms in each box
+    Integer, Allocatable :: nHitsinBox(:)     ! # Hits in a box
+    Integer, Allocatable :: atomsInBox(:,:)   ! Atoms in each box
+    Integer, Allocatable :: nAtomsInBox(:)    ! # Atoms in each box
+    Integer, Allocatable :: atomsNearBox(:,:) ! Atoms near each box
+    Integer, Allocatable :: nAtomsNearBox(:)  ! # Atoms near each box
 
-    Real(KINDR), Allocatable :: cubeBounds(:,:,:) ! The cube dimensions
+    Real(KINDR), Allocatable :: tempXYZ(:,:)
+    Real(KINDR), Allocatable :: tempRad(:)
 
     Logical :: isMom ! Is the mother processer
-    Logical :: lodd  ! Odd?
     Logical :: lfound(NUM_PROBES_IN_LOOP)  ! Is this probe in an atom?
 
     Character(1)   :: option   ! Command line options
     Character(80)  :: optarg   ! Command line arguments
     Character(80)  :: filename ! The XYZ filename
-    Character(160) :: radline  ! The line containing the radii
 
 !   Define a new type to hold the parameters of the nanoparticle
     Type GlobalType
@@ -143,7 +137,7 @@ Program NPVol
 
     filename = ''
     nSamples = 0
-    cubeLen  = ZERO
+    sideLen  = ZERO
     g%lbohr  = .false.
 
 !   Loop over the command line arguments.
@@ -163,9 +157,9 @@ Program NPVol
                 end if
             case ('g')
 !               Grid box size
-                read(optarg, *, iostat=readstat) cubeLen
+                read(optarg, *, iostat=readstat) sideLen
                 if (readstat /= 0) then
-                    call quit ('Grid side length must be a decimal number')
+                    call quit ('Box side length must be a decimal number')
                 end if
             case ('b')
                 g%lbohr = .true.
@@ -191,8 +185,8 @@ Program NPVol
     end if
 
 !   Set the grid cube length now if not set
-    if (cubeLen == ZERO) cubeLen = DEFAULT_CUBE_LEN
-    if (.not. g%lbohr) cubeLen = cubeLen * ANGSTROM2BOHR
+    if (sideLen == ZERO) sideLen = DEFAULT_SIDE_LEN
+    if (.not. g%lbohr) sideLen = sideLen * ANGSTROM2BOHR
 
 !   ----------------------------------------------------
 !   Read the XYZ file and assign the radii for each atom
@@ -215,174 +209,121 @@ Program NPVol
 !   Grab the corner points of the box that completely contain the system
     maxbox(:) = MAXVAL(g%xyz, DIM=2)
     minbox(:) = MINVAL(g%xyz, DIM=2)
-write(*,*) minbox
-write(*,*) maxbox
-
-!   Find the center of the box
-    halfBox(:) = ( maxbox(:) + minbox(:) ) / TWO
-write(*,*) halfBox
 
 !   Define the absolute box size.
     box(:) = ABS(maxbox(:) - minbox(:))
-write(*,*) box
-write(*,*) 'VOL', PRODUCT(box) * BOHR2NM**3
 
-!   Now see how many cubes we need to surround this box in each direction
-    nCubeXYZ(:) = CEILING(box(:) / cubeLen)
-
-!   Use the number of cubes in each direction to redefine the box
-    minbox(:) = halfBox(:) - ( nCubeXYZ(:) * cubelen ) / TWO
-    maxbox(:) = halfBox(:) + ( nCubeXYZ(:) * cubelen ) / TWO
-write(*,*) minbox
-write(*,*) maxbox
-
-!   Redefine the absolute box size
-    box(:) = ABS(maxbox(:) - minbox(:))
-write(*,*) box
-write(*,*) 'VOL', PRODUCT(box) * BOHR2NM**3
+!   Determine the total volume of the box
     totvol = PRODUCT(box(:))
 
+!   Find the longest side
+    if (MAXVAL(box(:)) == box(1)) then
+        iSide = 1
+    else if (MAXVAL(box(:)) == box(2)) then
+        iSide = 2
+    else if (MAXVAL(box(:)) == box(3)) then
+        iSide = 3
+    end if
+
+!   Divide the box along this side into subdivisions based on a requested size
+    nBoxes  = CEILING(box(iSide) / sideLen)
+!   Adjust the size based on the integer nBoxes
+    sideLen = box(iSide) / nBoxes
+
 !   Allocate arrays
-    nCubes = PRODUCT(nCubeXYZ)
-write(*,*) nCubes
-    allocate(dir2num(nCubeXYZ(1),nCubeXYZ(2),nCubeXYZ(3)))
-    allocate(cubeBounds(3,2,nCubes))
-    allocate(atomCubes(g%nAtoms))
-    allocate(orderedAtoms(g%nAtoms))
-    allocate(temparr(nCubes))
-    allocate(offsets(nCubes))
+    allocate(offsets(nBoxes+1))
+    allocate(nHitsinBox(nBoxes))
+    allocate(sortIndx(g%nAtoms))
+    allocate(boxbins(g%nAtoms))
+    allocate(tempXYZ(3,g%nAtoms))
+    allocate(tempRad(g%nAtoms))
+!   Yes, this wastes space, but it is efficiens
+    allocate(atomsInBox(g%nAtoms,nBoxes))
+    allocate(nAtomsInBox(nBoxes))
+    allocate(atomsNearBox(g%nAtoms,nBoxes))
+    allocate(nAtomsNearBox(nBoxes))
 
-!   Determine the dimensions of each cube
-    iCube = 1
-    cubebott(1) = minbox(1)
-    do iX = 1, nCubeXYZ(1)
-        cubebott(2) = minbox(2)
-        do iY = 1, nCubeXYZ(2)
-            cubebott(3) = minbox(3)
-            do iZ = 1, nCubeXYZ(3)
-!               Save the lower and upper bounds of this cube for each direction
-                cubeBounds(1,:,iCube) = (/cubebott(1), cubebott(1) + cubeLen/)
-                cubeBounds(2,:,iCube) = (/cubebott(2), cubebott(2) + cubeLen/)
-                cubeBounds(3,:,iCube) = (/cubebott(3), cubebott(3) + cubeLen/)
-!write(*,'(I,3F)') iCube, cubebounds(:,1,iCube)
-!write(*,'(I,3F)') iCube, cubebounds(:,2,iCube)
-!               Save what XYZ number this cube corresponds to
-                dir2num(iX,iY,iZ) = iCube
-                iCube = iCube + 1
-                cubebott(3) = cubebott(3) + cubeLen
-            end do
-            cubebott(2) = cubebott(2) + cubeLen
-        end do
-        cubebott(1) = cubebott(1) + cubeLen
-    end do
-
-!   Now, determine which cube the atoms belong to
-    temparr = 0
+!   Determine the box each atom belongs to
+    nAtomsInBox = 0
+    nAtomsNearBox = 0
     do iAtom = 1, g%nAtoms
-!       Save the atoms's postion
-        xyz(:) = g%xyz(:,iAtom)
-!       Locate the cube, first by x, then y, then z
-        cubebott(:) = minbox(:)
-        do iDir = 1, 3
-            XYZ_: do iXYZ = 1, nCubeXYZ(iDir)
-                if (xyz(iDir) > cubebott(iDir) .and. &
-                    xyz(iDir) <= cubebott(iDir) + cubeLen) then
-                    saveXYZ(iDir) = iXYZ
-                    exit XYZ_
-                end if
-                cubebott(iDir) = cubebott(iDir) + cubeLen
-            end do XYZ_
+!       Save the atoms's postion in the chosen side
+        xyz = g%xyz(iSide,iAtom)
+        boxbott = minbox(iSide)
+!       Count the number ot atoms in this box for the count sort
+        do iBox = 1, nBoxes
+            if (xyz >= boxbott .and. &
+                xyz < boxbott + sideLen) then
+                nAtomsInBox(iBox) = nAtomsInBox(iBox) + 1
+                atomsInBox(nAtomsInBox(iBox),iBox) = iAtom
+            end if
+!           Since the probe may extend outside the box a bit, include those
+!           atoms it might touch.
+            if (xyz >= boxbott - probeRad .and. &
+                xyz < boxbott + sideLen + probeRad) then
+                nAtomsNearBox(iBox) = nAtomsNearBox(iBox) + 1
+                atomsNearBox(nAtomsNearBox(iBox),iBox) = iAtom
+            end if
+            boxbott = boxbott + sideLen
         end do
-!       Save the number of this cube for this atom
-        atomCubes(iAtom) = dir2num(saveXYZ(1),saveXYZ(2),saveXYZ(3))
-!       Count the number ot atoms in this cube for the count sort
-        temparr(atomCubes(iAtom)) = temparr(atomCubes(iAtom)) + 1
     end do
 
-!   Use the counting sort algorithm to sort the atoms by cube number
-    temptot = 1
-    do iCube = 1, nCubes
-        itmp = temparr(iCube)
-        temparr(iCube) = temptot
-        temptot = temptot + itmp
-    end do
-!   Save the offsets for each cube before continuing
-    offsets(:) = temparr(:)
-    do iAtom = 1, g%nAtoms
-        orderedAtoms(temparr(atomCubes(iAtom))) = iAtom
-        temparr(atomCubes(iAtom)) = temparr(atomCubes(iAtom)) + 1
-    end do
-    deallocate(temparr)
+!!   Now, determine which box the atoms belong to
+!    sortIndx = 0
+!    firstAtomSort: do iAtom = 1, g%nAtoms
+!!       Save the atoms's postion in the chosen side
+!        xyz = g%xyz(iSide,iAtom)
+!        boxbott = minbox(iSide)
+!!       Count the number ot atoms in this box for the count sort
+!        do iBox = 1, nBoxes
+!            if (xyz >= boxbott-proberad .and. xyz < boxbott + sideLen + proberad) then
+!                sortIndx(iBox) = sortIndx(iBox) + 1
+!                boxbins(iAtom) = iBox
+!                cycle firstAtomSort
+!            end if
+!            boxbott = boxbott + sideLen
+!        end do
+!!       If we get here, an atom was on the edge of the last box.  Put it in that
+!!       box.
+!        boxbins(iAtom)   = nBoxes
+!        sortIndx(nBoxes) = sortIndx(nBoxes) + 1
+!    end do firstAtomSort
+!
+!!   Use the counting sort algorithm to sort the atoms by box number
+!    temptot = 1
+!    do iBox = 1, nBoxes
+!        itmp = sortIndx(iBox)
+!        sortIndx(iBox) = temptot
+!        temptot = temptot + itmp
+!    end do
+!!   Save the offsets for each cube before continuing
+!    offsets(1:nBoxes) = sortIndx(:)
+!    offsets(nBoxes+1) = g%nAtoms + 1
+!!   Put the original coordinates and radii into a temp array
+!    tempXYZ = g%xyz
+!    tempRad = g%rad
+!    do iAtom = 1, g%nAtoms
+!        g%xyz(:,sortIndx(boxbins(iAtom))) = tempXYZ(:,iAtom)
+!        g%rad(sortIndx(boxbins(iAtom)))   = tempRad(iAtom)
+!        sortIndx(boxbins(iAtom))          = sortIndx(boxbins(iAtom)) + 1
+!    end do
+!   Free up space
+    deallocate(sortIndx)
+    deallocate(boxbins)
+    deallocate(tempXYZ)
+    deallocate(tempRad)
 
-!   Last, determine the number of filled cubes, and make an index correlating
-!   filled to all cubes.
-    nFilled = 0
-    do iCube = 1, nCubes - 1
-write(*,*) iCube, offsets(iCube), offsets(iCube+1)
-        if ((offsets(iCube+1) - offsets(iCube)) /= 0) then
-            nFilled = nFilled + 1
-        else
-            offsets(iCube) = 0
-        end if
-write(*,*) nFilled
-!write(*,*) iCube, offsets(iCube)
-    end do
-write(*,*) nCubes, offsets(nCubes)
-    if (offsets(nCubes) > g%nAtoms) then
-        offsets(nCubes) = 0
-    else
-        nFilled = nFilled + 1
-    end if
-!write(*,*) nCubes, offsets(nCubes)
-    allocate(findx(nFilled))
-    iFilled = 1
-    do iCube = 1, nCubes
-write(*,*) iCube, iFilled, offsets(iCube)
-        if (offsets(iCube) /= 0) then
-            findx(iFilled) = iCube
-            iFilled = iFilled + 1
-        end if
-    end do
-    if (iFilled == nFilled) then
-        findx(iFilled) = nCubes
-    end if
-write(*,*) findx
-
-    do iFilled = 1, nFilled
-        iCube = findx(iFilled)
-        atomlow  = offsets(iCube)
-        if (iFilled == nFilled .or. iCube == nCubes) then
-            atomhigh = g%nAtoms
-        else
-            atomhigh = offsets(iCube+1)-1
-        end if
-        do itmp = atomlow, atomhigh
-            iAtom = orderedAtoms(itmp)
-        end do
-        !box(:) = ABS(cubeBounds(:,2,iCube) - cubeBounds(:,1,iCube))
-        !minbox(:) = cubeBounds(:,1,iCube)
-!write(*,*) cubeBounds(:,1,iCube)
-!write(*,*) cubeBounds(:,2,iCube)
-    end do
-
-!   Find the volume of the filled cells to determine the total box volume
-    !totvol = nFilled * cubeLen**3
-write(*,*) 'VOL', totvol * BOHR2NM**3
-write(*,*) 'ONEVOL', cubeLen**3 * BOHR2NM**3
-
-!   If a certain number of samples was not requested, base the number of samples
-!   on the number of atoms in the system.
-    if (nSamples == 0) nSamples = MAX(g%nAtoms * MULTIPLIER, DEFAULT_NSAMPLES)
+!   If a certain number of samples was not requested, use the default
+    if (nSamples == 0) nSamples = DEFAULT_NSAMPLES
 !   The below is equivalent to rounding up to the nearest
 !   NUM_PROBES_IN_LOOP and then dividing by NUM_PROBES_IN_LOOP.
 !   This is done to account for the unrolling in the main loop.
-    nSamples = CEILING(REAL(nSamples) / ( NUM_PROBES_IN_LOOP * nFilled ) )
-write(*,*) nSamples
+    nSamples = CEILING(REAL(nSamples) / NUM_PROBES_IN_LOOP )
 
 !   Write the number of samples that will be used
     if (isMom) then
         write(*,'(A14,1X,I10)') '# Samples    :', nSamples &
-                                                * NUM_PROBES_IN_LOOP * nFilled
+                                                * NUM_PROBES_IN_LOOP * nBoxes
     end if
 
 !   Seed the random number generator based on the clock time
@@ -393,15 +334,15 @@ write(*,*) nSamples
 
 !   Determine how to distribute the samples over the nodes
     if (nTasks <= 1) then
-        lowFilled  = 1
-        highFilled = nFilled
+        lowSamp  = 1
+        highSamp = nSamples
     else
-        lowFilled  = 1 + ( myRank * nFilled )      / nTasks
-        highFilled = ( ( myRank + 1 ) *  nFilled ) / nTasks
+        lowSamp  = 1 + ( myRank * nSamples )      / nTasks
+        highSamp = ( ( myRank + 1 ) *  nSamples ) / nTasks
     end if
 #else
-    lowFilled  = 1
-    highFilled = nFilled
+    lowSamp  = 1
+    highSamp = nSamples
 !$OMP PARALLEL PRIVATE(rng_state, probe, dist, iAtom, r, iTouch,   &
 !$OMP                  lfound, hSum, atomRad, atomProbeRad, iCube, &
 !$OMP                  box, minbox, atomlow, atomhigh)
@@ -416,21 +357,18 @@ write(*,*) nSamples
 !   Perform the volume integration
 !   ------------------------------
 
+!   Find the dimensions of the first box (new dimesions are found at the end of
+!   this loop)
+    subbox(:)     = box(:)
+    subbox(iSide) = sideLen
+    submin(:)     = minbox(:)
+    submin(iSide) = minbox(iSide)
 !   Determine the volume using a monte carlo algorithm.
-    nHits = 0
-!$OMP DO REDUCTION(+:nHits)
-    filledCubes_: do iFilled = lowFilled, highFilled
+    boxes_: do iBox = 1, nBoxes
 
-!       Correlate to the full cube list
-        iCube = findx(iFilled)
-!       Find the box size and min value
-        box(:) = ABS(cubeBounds(:,2,iCube) - cubeBounds(:,1,iCube))
-        minbox(:) = cubeBounds(:,1,iCube)
-!write(*,*) cubeBounds(:,1,iCube)
-!write(*,*) cubeBounds(:,2,iCube)
-!call sleep(5)
-
-        samples_: do iSamp = 1, nSamples
+        nHits = 0
+!$OMP   DO REDUCTION(+:nHits)
+        samples_: do iSamp = lowSamp, highSamp
 
 !           Grab a random number for the x, y, and z value of the probe(s)
 !           Place these points in the box.  This loop is unrolled for speed.
@@ -537,7 +475,6 @@ write(*,*) nSamples
             probe(:,98)  = box(:) * rng_uniform3(rng_state) + minbox(:)
             probe(:,99)  = box(:) * rng_uniform3(rng_state) + minbox(:)
             probe(:,100) = box(:) * rng_uniform3(rng_state) + minbox(:)
-!write(*,*) probe
 
 !           Reset the found probe index and the touching index
             lfound = .false.
@@ -547,16 +484,10 @@ write(*,*) nSamples
 !           If these points are in any atom, count them as in the system
 !           Use the square of the distance to test this, not the square root, since
 !           the square root slows this loop by about a factor of two.
-            atomlow  = offsets(iCube)
-            if (iFilled == nFilled .or. iCube == nCubes) then
-                atomhigh = g%nAtoms
-            else
-                atomhigh = offsets(iCube+1)-1
-            end if
-            atoms_: do itmp = atomlow, atomhigh
+            atoms_: do itmp = 1, nAtomsInBox(iBox)
 
-!               Convert this to the actial atom index
-                iAtom = orderedAtoms(itmp)
+!               Correlate itmp to the actual atom
+                iAtom = atomsInBox(itmp,iBox)
 
 !               Calculate this atom's radius squared and (probe+atom)**2
                 atomRad = g%rad(iAtom)
@@ -710,15 +641,47 @@ write(*,*) nSamples
 
             end do atoms_
 
-        end do samples_
+            do itmp = 1, nAtomsNearBox(iBox)
 
-    end do filledCubes_
-!$OMP END DO
+!               Correlate itmp to the actual atom
+                iAtom = atomsNearBox(itmp,iBox)
+
+!               Calculate this atom's radius squared and (probe+atom)**2
+                atomRad = g%rad(iAtom)
+                atomProbeRad = ( probeRad + atomRad )**2
+                atomRad = atomRad * atomRad
+
+                do iProbe = 1, NUM_PROBES_IN_LOOP
+                    if (.not. lfound(iProbe)) then
+                        r(:) = g%xyz(:,iAtom) - probe(:,iProbe)
+                        dist = DOT_PRODUCT(r, r)
+                        if (dist <= atomProbeRad) then
+                            INCREMENT(iTouch(iProbe))
+                            if (iTouch(iProbe) > 3) then
+                                INCREMENT(nHits)
+                                INCREMENT(hSum)
+                                lfound(iProbe) = .true.
+                            end if
+                        end if
+                    end if
+                end do
+
+            end do
+
+        end do samples_
+!$OMP   END DO
+
+!       Keep track of the hits for each box
+        nHitsinBox(iBox) = nHits
+
+!       Find the dimensions of the next box
+        submin(iSide) = submin(iSide) + sideLen
+
+    end do boxes_
 !$OMP END PARALLEL
 #ifdef _MPI
 !   Collect the totals from all processes
-    itmp = nHits
-    call MPI_ALLREDUCE (itmp, nHits, 1, MPI_INTEGER, &
+    call MPI_ALLREDUCE (MPI_IN_PLACE, nHitsInBoxes, nBoxes, MPI_INTEGER, &
                         MPI_SUM, MPI_COMM_WORLD, mpierr)
     if (mpierr /= MPI_SUCCESS) call quit ('Could not reduce nHits')
 #endif
@@ -727,9 +690,16 @@ write(*,*) nSamples
 !   Clean up
 !   --------
 
+write(*,*) nHitsinBox
+write(*,*) nBoxes
+write(*,*) nSamples
+write(*,*) NUM_PROBES_IN_LOOP
 !   Finally, calculate the volume of the DIM system in nm**3
-    volume = REAL(nHits, KINDR) &
-           / REAL(nSamples*nFilled*NUM_PROBES_IN_LOOP, KINDR)
+    volume = ZERO
+    do iBox = 1, nBoxes
+        volume = volume + REAL(nHitsinBox(iBox), KINDR) &
+                        / REAL(nSamples * NUM_PROBES_IN_LOOP, KINDR)
+    end do
     volume = volume * totvol * BOHR2NM**3
 
 !   End the clock
@@ -863,7 +833,6 @@ Contains
         Character(2)               :: elements(100) ! The elements detected
         Character(160)             :: line     ! A line of the file 
         Character(160)             :: radline  ! The line with the radii
-        Logical                    :: lfound(100)   ! Was this element found
 
         Integer, Parameter         :: iufile = 100 ! File unit number
 
@@ -1090,12 +1059,14 @@ Contains
 
 !       Deallocate the allocatables
         if (ALLOCATED(g%xyz))        deallocate(g%rad, g%name, g%xyz)
-        if (ALLOCATED(dir2num))      deallocate(dir2num)
-        if (ALLOCATED(cubeBounds))   deallocate(cubeBounds)
-        if (ALLOCATED(atomCubes))    deallocate(atomCubes)
-        if (ALLOCATED(orderedAtoms)) deallocate(orderedAtoms)
+        if (ALLOCATED(sortIndx))     deallocate(sortIndx)
         if (ALLOCATED(offsets))      deallocate(offsets)
-        if (ALLOCATED(findx))        deallocate(findx)
+        if (ALLOCATED(nHitsinBox))   deallocate(nHitsinBox)
+        if (ALLOCATED(boxbins))      deallocate(boxbins)
+        if (ALLOCATED(atomsInBox))   deallocate(atomsInBox)
+        if (ALLOCATED(nAtomsInBox))  deallocate(nAtomsInBox)
+        if (ALLOCATED(tempXYZ))      deallocate(tempXYZ)
+        if (ALLOCATED(tempRad))      deallocate(tempRad)
 
 #ifdef _MPI
 !       For MPI, use proper MPI routine to clean up.
