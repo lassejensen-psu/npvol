@@ -40,9 +40,13 @@ Program NPVol
     Real(KINDR) :: atomProbeRad ! Radius of current atom + probe
     Real(KINDR) :: r(3)         ! Vector distance
     Real(KINDR) :: dist         ! Scalar distance
-    Real(KINDR) :: volume       ! Nanoparticle bolume
     Real(KINDR) :: probe(3,NUM_PROBES_IN_LOOP) ! The probe positions
+    Real(KINDR) :: volume       ! Nanoparticle volume
+    Real(KINDR) :: opt_vol      ! Volume during optimization
+    Real(KINDR) :: radmult      ! The multiplier to optimize
+    Real(KINDR) :: stepsize     ! Stepsize in optimization
 
+    Logical :: loptimize                   ! Perform parameter optimization?
     Logical :: lfound(NUM_PROBES_IN_LOOP)  ! Is this probe in an atom?
 
     Character(1)   :: option   ! Command line options
@@ -60,13 +64,14 @@ Program NPVol
 !   Interperet the command line
 !   ---------------------------
 
-    filename = ''
-    nSamples = 0
-    g%lbohr  = .false.
+    filename  = ''
+    nSamples  = 0
+    g%lbohr   = .false.
+    loptimize = .false.
 
 !   Loop over the command line arguments.
     do
-        call GetOpt ('h?s:b', option, optarg)
+        call GetOpt ('h?s:bo', option, optarg)
         select case (option)
             case ('>')
                 Exit
@@ -79,6 +84,8 @@ Program NPVol
                 if (readstat /= 0) then
                     call quit ('Given number of samples must be an integer')
                 end if
+            case ('o')
+                loptimize = .true.
             case ('b')
                 g%lbohr = .true.
             case ('h')
@@ -205,20 +212,69 @@ Program NPVol
 !$OMP END PARALLEL
     call reduce (nHits, 'nHits')
 
-!   --------
-!   Clean up
-!   --------
+!   --------------------
+!   Print out the volume
+!   --------------------
 
 !   Finally, calculate the volume of the DIM system in nm**3
     volume = REAL(nHits, KINDR) / REAL(nSamples*NUM_PROBES_IN_LOOP, KINDR)
     volume = volume * totvol * BOHR2NM**3
+
+!   Write the results to screen
+    if (IAmMom) then
+        write(*,'(A14,1X,ES10.4,1X,A)') 'Volume       :', volume, 'nm^3'
+    end if
+
+!   -------------------------------------------------------------------------
+!   Shall we try to optimize the multiplier?
+!   This will find a value to multiply the atomic radius by such that the sum
+!   of atomic volumes given by spheres with that adjusted volumes.  This
+!   multiplier can be used in other codes that use the summation method to
+!   quickly approximate nanoparticle volume.
+!   -------------------------------------------------------------------------
+
+    if (loptimize) then
+
+!       Set initial radmult and the optimization stepsize
+        radmult = ONE
+        stepsize = HALF
+
+!       Calculate the initial volume with the summation method
+        opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3)
+
+!       Continue to optimize until we reach the correct volume to 5%
+        do while (( ABS(volume - opt_vol) / volume ) > 0.05_KINDR)
+
+!           Only change the step size if we went past the mark, as in
+!           stepsize positive and higher than mark or
+!           stepsize negative and lower than mark
+!           When we change, we switch sign and halve value
+            if ((ABS(stepsize) == stepsize .and. opt_vol > volume) .or. &
+                (ABS(stepsize) /= stepsize .and. opt_vol < volume)) then
+                stepsize = -stepsize * HALF
+            end if
+
+!           Calculate new stepsize
+            radmult = radmult + stepsize
+
+!           Recalculate the volume
+            opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3)
+
+        end do
+
+!       Print out the optimized radmult and the volume
+        if (IAmMom) then
+            write(*,'(A14,1X,F10.4)')       'Multiplier   :', radmult
+            write(*,'(A14,1X,ES10.4,1X,A)') 'Volume (Sum) :', opt_vol, 'nm^3'
+        end if
+
+    end if
 
 !   End the clock
     tot_t = real_time() - start_t
 
 !   Write the results to screen
     if (IAmMom) then
-        write(*,'(A14,1X,ES10.4,1X,A)') 'Volume       :', volume, 'nm^3'
         write(*,'(A14,1X,F10.4,1X,A)')  'Elapsed Time :', tot_t, 'seconds'
     end if
 

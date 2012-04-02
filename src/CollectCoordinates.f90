@@ -11,19 +11,19 @@ Subroutine CollectCoordinates (filename)
 
     Implicit None
 
-    Character(*),   Intent(In) :: filename ! Name of the file
-    Integer                    :: openstat ! File open status
-    Integer                    :: readstat ! File read status
-    Integer                    :: i        ! Counter
-    Integer                    :: indx     ! Current index in a line
-    Integer                    :: oldIndx  ! Current index in a line
-    Integer                    :: nElem    ! Number of elements found
-    Integer                    :: iElem    ! Element loop index
-    Integer                    :: iAtom    ! Atom loop index
+    Character(*),   Intent(In) :: filename      ! Name of the file
+    Integer                    :: openstat      ! File open status
+    Integer                    :: readstat      ! File read status
+    Integer                    :: i             ! Counter
+    Integer                    :: indx          ! Current index in a line
+    Integer                    :: oldIndx       ! Current index in a line
+    Integer                    :: nElem         ! Number of elements found
+    Integer                    :: iElem         ! Element loop index
+    Integer                    :: iAtom         ! Atom loop index
     Real(KINDR)                :: radii(100)    ! The radii detected
     Character(2)               :: elements(100) ! The elements detected
-    Character(160)             :: line     ! A line of the file 
-    Character(160)             :: radline  ! The line with the radii
+    Character(160)             :: line          ! A line of the file 
+    Character(160)             :: radline       ! The line with the radii
     Logical                    :: lfound(100)   ! Was this element found
 
     Integer, Parameter         :: iufile = 100 ! File unit number

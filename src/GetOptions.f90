@@ -34,17 +34,17 @@ Contains
 
     Subroutine GetOpt (optstr, option, optarg)
 
-        Character(*), Intent(In)  :: optstr
-        Character(1), Intent(Out) :: option
-        Character(*), Intent(Out) :: optarg
-        Character(80)             :: arg
-        Character(1)              :: okey
-        Integer                   :: argc
-        Integer                   :: optstr_len
-        Logical                   :: lfound
+        Character(*), Intent(In)    :: optstr
+        Character(1), Intent(InOut) :: option
+        Character(*), Intent(InOut) :: optarg
+        Character(80)               :: arg
+        Character(1)                :: okey
+        Integer                     :: argc
+        Integer                     :: optstr_len
+        Logical                     :: lfound
 
-        Integer, Intrinsic        :: iargc
-        Intrinsic                 :: GetArg
+        Integer, Intrinsic          :: iargc
+        Intrinsic                   :: GetArg
 
 !       Grab the number of arguments on the command line
 !       This is a Fortran builtin

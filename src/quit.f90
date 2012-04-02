@@ -53,6 +53,13 @@ Subroutine Help ()
         write(*,*) '-b'
         write(*,*) '   This changes the unit read in from Angstrom to Bohr'
         write(*,*)
+        write(*,*) '-o'
+        write(*,*) '   Optimize the atomic radius mutliplier so that a simple'
+        write(*,*) '   sum of the individual atomic volumes approximates the'
+        write(*,*) '   total volume as found from Monte Carlo integration.'
+        write(*,*) '   Value can be used in other codes that use the summation'
+        write(*,*) '   method to find the volume quickly'
+        write(*,*)
         write(*,*) 'Author: Seth M. Morton'
         write(*,*)
     end if
