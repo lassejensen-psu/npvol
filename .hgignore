@@ -2,3 +2,4 @@ NPVol
 .*\.mod$
 .*\.o$
 .*\.swp$
+build-dir-exists$
