@@ -2,12 +2,29 @@
 # Setup
 # =====
 
-# The compiler and flags (uncomment extra for debugging)
-FC = ifort
-FCFLAGS += -O2 #-g -traceback -warn all -check all
-
 # Install location (note that bin will be appended)
 PREFIX = /usr/local/
+
+# The compiler and flags (uncomment extra for debugging)
+FC = ifort
+FCFLAGS += -O2 -Iinclude #-g -traceback -warn all -check all
+
+# Choose the flag that defines the module directory for this compiler
+ifeq (${FC}, ifort)
+  FCFLAGS += -module include
+else
+  ifeq (${FC}, gfortran)
+    FCFLAGS += -Jinclude
+  else
+    ifeq (${FC}, pgf90)
+      FCFLAGS += -module include
+    else
+      ifeq (${FC}, g95)
+        FCFLAGS += -fmod=include
+      endif
+    endif
+  endif
+endif
 
 # Parallel mode we want to use
 # Define mode to openmp or mpi for OpenMP or MPI, respectively
@@ -50,40 +67,59 @@ endif
 # Building rules
 # ==============
 
+SRC = src
+BLD = build
+
+MODS = ${BLD}/constants.o \
+       ${BLD}/parallel.o \
+       ${BLD}/global.o
+
+SUBOBJ = ${MODS} \
+         ${BLD}/CollectCoordinates.o \
+         ${BLD}/GetOptions.o \
+         ${BLD}/quit.o \
+         ${BLD}/Random.o
+
+OBJ = ${BLD}/npvol.o ${SUBOBJ}
+
 # "make" builds all
 all: NPVol
 
 # General rule for building executable from objects. 
 # $@ is the name of the target (in this case the executable)
 # $^ is all dependencies
-NPVol: npvol.o constants.o CollectCoordinates.o GetOptions.o global.o parallel.o quit.o Random.o
+NPVol: ${OBJ}
 	${FCCOMP} ${FCFLAGS} -o $@ $^
 
 # $< is used in order to list only the first dependency (the source file)
 # and not the additional prerequisites such as module or include files
-npvol.o: npvol.f90 constants.o CollectCoordinates.o GetOptions.o global.o parallel.o quit.o Random.o
+${BLD}/npvol.o: ${SRC}/npvol.f90 ${SUBOBJ}
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-quit.o: quit.f90 constants.o parallel.o global.o
+${BLD}/quit.o: ${SRC}/quit.f90 ${MODS}
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-CollectCoordinates.o: CollectCoordinates.f90 constants.o parallel.o global.o
+${BLD}/CollectCoordinates.o: ${SRC}/CollectCoordinates.f90 ${MODS}
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-GetOptions.o: GetOptions.f90
+${BLD}/GetOptions.o: ${SRC}/GetOptions.f90
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-Random.o: Random.f90 constants.o
+${BLD}/Random.o: ${SRC}/Random.f90 ${BLD}/constants.o
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-parallel.o: parallel.F90 constants.o
+${BLD}/parallel.o: ${SRC}/parallel.F90 ${BLD}/constants.o
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-global.o: global.f90 constants.o
+${BLD}/global.o: ${SRC}/global.f90 ${BLD}/constants.o
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
-constants.o: constants.f90
+${BLD}/constants.o: ${SRC}/constants.f90 ${BLD}/build-dir-exists
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
+
+${BLD}/build-dir-exists:
+	mkdir ${BLD}
+	touch ${BLD}/build-dir-exists
 
 # =============
 # Special rules
@@ -95,17 +131,15 @@ constants.o: constants.f90
 # Utility targets
 .PHONY: install clean cleanall
 
-debug:
-	@echo ${FLAVOR} ${PARMODE} ${FCCOMP}
-
 # Installs executable to your home binary directory
 install:
 	install -D ${PROG} ${PREFIX}/${PROG}
 
 # Removes objects
 clean:
-	@rm -vf *.o *.mod
+	@rm -vf build/*.o include/*.mod
 
 # Removes executable
 cleanall: clean
 	@rm -vf ${PROG}
+	@rm -vrf build/
