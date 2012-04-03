@@ -43,8 +43,7 @@ Contains
         Integer                     :: optstr_len
         Logical                     :: lfound
 
-        Integer, Intrinsic          :: iargc
-        Intrinsic                   :: GetArg
+        Integer                     :: iargc
 
 !       Grab the number of arguments on the command line
 !       This is a Fortran builtin
