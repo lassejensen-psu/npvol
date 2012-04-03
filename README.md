@@ -146,11 +146,11 @@ We know that the area of the square frame that the dartboard is in is
 
   A^square = (2r)^2 = 4r^2
 
-where `r` is half the side length of the frame (you'll see why it was defined that way in a moment). We also know that the area of the circular dartboard is 
+where r is half the side length of the frame (you'll see why it was defined that way in a moment). We also know that the area of the circular dartboard is 
 
   A^circle = &pi;r^2
 
-Now, if there was some way to find the ratio (`R`) of the areas, then we could find pi, like this:
+Now, if there was some way to find the ratio (R) of the areas, then we could find pi, like this:
 
   R = A^circle / A^square = ( &pi;r^2 ) / ( 4r^2 ) = &pi; / 4  
   &pi; = 4R
