@@ -242,7 +242,7 @@ Program NPVol
 !       Calculate the initial volume with the summation method
         opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3) * BOHR2NM**3
 
-!       Continue to optimize until we reach the correct volume to 5%
+!       Continue to optimize until we reach the correct volume to 1%
         do while (( ABS(volume - opt_vol) / volume ) > 0.01_KINDR)
 
 !           Only change the step size if we went past the mark, as in
