@@ -35,17 +35,17 @@ The only time I recommend **MPI** is if you are on a distributed memory system s
 
 ##### Compiling a parallel method
 
-To compile with parallelization support, you must set the `PARMODE` variable.  For **OpenMP**:
+To compile with parallelization support, you must set the `PARALLEL` variable.  For **OpenMP**:
 
-	make PARMODE=openmp
+	make PARALLEL=openmp
 
 For **MPI**:
 
-	make PARMODE=mpi
+	make PARALLEL=mpi
 
 **MPI** comes in many *flavors* (implementations), such as **OpenMPI** (not to be confused with **OpenMP**), **MPICH**, etc.  `NPVol`'s `Makefile` is aware of **OpenMPI** and **MPICH**, as these are probably the two most common free **MPI** flavors.  You should determine which flavor you have installed on your machine before you compile `NPVol`.  By default, the `Makefile` assumes you have **OpenMPI** installed.  To change this, use the `FLAVOR` variable
 
-	make PARMODE=mpi FLAVOR=mpich
+	make PARALLEL=mpi FLAVOR=mpich
 
 If you have a different flavor, please add it to the `Makefile`!
 
@@ -159,7 +159,7 @@ This means that &pi; is just 4 times the ratio of the two areas!
 
 …But wait a minute.  What does that have to do with my dartboard?  How can I find the area of the circle without pi?  This is where the Monte Carlo technique comes in. In Monte Carlo, we use random numbers to compare something known (or easily determined) to something unknown (or less easily determined).  
 
-Remember that our circular dartboard is enclosed by a square frame, with the side of the frame being exactly equal to the diameter of the dartboard.  If you are a terrible dart player, and every dart you throw has a random chance of hitting *anywhere* in the frame, be it on the dartboard or not, then the ratio of darts that are in the frame to darts that are only within the dartboard is directly proportional to the ratio of the areas, and therefore is equal to the `R` defined above!.  
+Remember that our circular dartboard is enclosed by a square frame, with the side of the frame being exactly equal to the diameter of the dartboard.  If you are a terrible dart player, and every dart you throw has a random chance of hitting *anywhere* in the frame, be it on the dartboard or not, then the ratio of darts that are in the frame to darts that are only within the dartboard is directly proportional to the ratio of the areas, and therefore is equal to the R defined above!.  
 
 I'll let that soak in a bit. Try drawing a circle enclosed by a square on a piece of paper, then putting random dots *in the square, as if the circle were not there*.  This is exactly what I am talking about.  The more points you put (darts you throw), the closer your ratio is to exactly the ratio of the areas.  If you were to use an infinite number of points/darts, then you would get the exact answer.
 
