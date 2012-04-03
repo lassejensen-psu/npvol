@@ -5,24 +5,29 @@
 # Install location (note that bin will be appended)
 PREFIX = /usr/local/
 
-# The compiler and flags (uncomment extra for debugging)
+# The compiler
 FC = gfortran
-FCFLAGS += -Iinclude #-g -traceback -warn all -check all
 
 # Choose the flag that defines the module directory for this compiler
 # Also, optimization level is set here.  ifort works better with -O2,
 # but the others work better with -O3
+# Uncomment extra flags for debugging
+# Comment out the second FCFLAGS if you get a compilation error
 ifeq (${FC}, ifort)
-  FCFLAGS += -O2 -module include
+  FCFLAGS += -O2 -Iinclude -module include #-g -traceback -warn all -check all
+  FCFLAGS += -xHost
 else
   ifeq (${FC}, gfortran)
-    FCFLAGS += -O3 -Jinclude
+    FCFLAGS += -O3 -Iinclude -Jinclude #-g -fbacktrace -Wall -fbounds-check
+    FCFLAGS += -march=native
   else
     ifeq (${FC}, pgf90)
-      FCFLAGS += -O3 -fast -module include
+      FCFLAGS += -O3 -fast -Iinclude -module include #-g -traceback -Mbounds
+      FCFLAGS += -ta=host
     else
       ifeq (${FC}, g95)
-        FCFLAGS += -O3 -fmod=include
+        FCFLAGS += -O3 -Iinclude -fmod=include #-g -ftrace=full -Wall -fbounds-check
+    	FCFLAGS += -march=native
       endif
     endif
   endif
@@ -30,13 +35,13 @@ endif
 
 # Parallel mode we want to use
 # Define mode to openmp or mpi for OpenMP or MPI, respectively
-PARMODE = serial
+PARALLEL = serial
 # Set this to define the MPI flavor
 # So far only OpenMPI and MPICH are inmplemented
 FLAVOR = openmpi
 
 # Define the compiler based on MPI or not
-ifeq (${PARMODE}, mpi)
+ifeq (${PARALLEL}, mpi)
   FCFLAGS += -D_MPI
   ifeq (${FLAVOR}, openmpi)
     FCCOMP := OMPI_FC=${FC} mpif90
@@ -47,7 +52,7 @@ ifeq (${PARMODE}, mpi)
   endif
 else
   # If OpenMP, select the correct flags
-  ifeq (${PARMODE}, openmp)
+  ifeq (${PARALLEL}, openmp)
     ifeq (${FC}, ifort)
       FCFLAGS += -openmp
     else
@@ -136,7 +141,7 @@ ${BLD}/build-dir-exists:
 
 # Installs executable to your home binary directory
 install:
-	install -D ${PROG} ${PREFIX}/${PROG}
+	install -D NPVol ${PREFIX}/bin
 
 # Removes objects
 clean:
