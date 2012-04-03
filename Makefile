@@ -7,20 +7,22 @@ PREFIX = /usr/local/
 
 # The compiler and flags (uncomment extra for debugging)
 FC = gfortran
-FCFLAGS += -O2 -Iinclude #-g -traceback -warn all -check all
+FCFLAGS += -Iinclude #-g -traceback -warn all -check all
 
 # Choose the flag that defines the module directory for this compiler
+# Also, optimization level is set here.  ifort works better with -O2,
+# but the others work better with -O3
 ifeq (${FC}, ifort)
-  FCFLAGS += -module include
+  FCFLAGS += -O2 -module include
 else
   ifeq (${FC}, gfortran)
-    FCFLAGS += -Jinclude
+    FCFLAGS += -O3 -Jinclude
   else
     ifeq (${FC}, pgf90)
-      FCFLAGS += -module include
+      FCFLAGS += -O3 -fast -module include
     else
       ifeq (${FC}, g95)
-        FCFLAGS += -fmod=include
+        FCFLAGS += -O3 -fmod=include
       endif
     endif
   endif
@@ -50,7 +52,8 @@ else
       FCFLAGS += -openmp
     else
       ifeq (${FC}, gfortran)
-        FCFLAGS += -fopenmp -lgomp
+        FCFLAGS += -fopenmp
+	FCLINKFLAGS += -lgomp
       else
         ifeq (${FC}, pgf90)
           FCFLAGS += -mp
@@ -89,7 +92,7 @@ all: NPVol
 # $@ is the name of the target (in this case the executable)
 # $^ is all dependencies
 NPVol: ${OBJ}
-	${FCCOMP} ${FCFLAGS} -o $@ $^
+	${FCCOMP} ${FCFLAGS} ${FCLINKFLAGS} -o $@ $^
 
 # $< is used in order to list only the first dependency (the source file)
 # and not the additional prerequisites such as module or include files
