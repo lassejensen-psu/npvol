@@ -240,10 +240,10 @@ Program NPVol
         stepsize = HALF
 
 !       Calculate the initial volume with the summation method
-        opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3)
+        opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3) * BOHR2NM**3
 
-!       Continue to optimize until we reach the correct volume to 5%
-        do while (( ABS(volume - opt_vol) / volume ) > 0.05_KINDR)
+!       Continue to optimize until we reach the correct volume to 1%
+        do while (( ABS(volume - opt_vol) / volume ) > 0.01_KINDR)
 
 !           Only change the step size if we went past the mark, as in
 !           stepsize positive and higher than mark or
@@ -258,7 +258,7 @@ Program NPVol
             radmult = radmult + stepsize
 
 !           Recalculate the volume
-            opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3)
+            opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3) * BOHR2NM**3
 
         end do
 
