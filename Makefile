@@ -149,7 +149,7 @@ clean:
 
 # Removes executable
 cleanall: clean
-	@rm -vf ${PROG}
+	@rm -vf NPVol
 	@rm -vrf build/
 
 # Alternates for cleanall
