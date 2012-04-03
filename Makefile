@@ -126,8 +126,8 @@ ${BLD}/constants.o: ${SRC}/constants.f90 ${BLD}/build-dir-exists
 	${FCCOMP} ${FCFLAGS} -c $< -o $@
 
 ${BLD}/build-dir-exists:
-	mkdir ${BLD}
-	touch ${BLD}/build-dir-exists
+	@mkdir ${BLD}
+	@touch ${BLD}/build-dir-exists
 
 # =============
 # Special rules
