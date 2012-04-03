@@ -6,7 +6,7 @@
 PREFIX = /usr/local/
 
 # The compiler and flags (uncomment extra for debugging)
-FC = ifort
+FC = gfortran
 FCFLAGS += -O2 -Iinclude #-g -traceback -warn all -check all
 
 # Choose the flag that defines the module directory for this compiler
