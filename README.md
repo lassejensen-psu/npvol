@@ -15,8 +15,6 @@ Compiling `NPVol` should be as easy as running `Make` in the `npvol` directory. 
 
 I have deliberately avoided a configure script or any other heavy duty build system in favor of a simple Makefile for this project.  The reason is that there are no external dependencies (except for MPI if you choose to use it) so there is no need to use excessive force.  As such, I have added in some customizations to the `Makefile` itself to simulate on a small scale how these configure systems work.  Feel free to change what needs changing, or better yet improve and generalize what is there.
 
-Please note that I have done quite a bit of testing against different compiler flags, and I have found that because I do quite a bit of loop unrolling, `-O2` is much faster than `-O3` for this code.
-
 ### Known Compilers
 
 The `Makefile` for `NPVol` is aware of the compilers `gfortran`, `ifort`, `g95`, and `pgf90`, and thus has compilation flags for these compilers pre-programmed.  The default compiler is `gfortran` (since this is what most people have), but I have found the `ifort` gives far superior performance, so use that if you have access (`g95` is particulary bad, so I don't recommed).  To choose the compiler you want, use
