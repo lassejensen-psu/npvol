@@ -12,9 +12,10 @@ Program NPVol
 
     Implicit None
 
-    Integer, Parameter :: NUM_PROBES_IN_LOOP = 100 ! Probes per sample
-    Integer, Parameter :: DEFAULT_NSAMPLES = 10**6 ! Min samples by default
-    Integer, Parameter :: MULTIPLIER = 50          ! For samples test
+    Integer,     Parameter :: NUM_PROBES_IN_LOOP = 100 ! Probes per sample
+    Integer,     Parameter :: DEFAULT_NSAMPLES = 10**6 ! Min samples by default
+    Integer,     Parameter :: MULTIPLIER = 50          ! For samples test
+    Real(KINDR), Parameter :: DEFAULT_THRESHOLD = 0.01_KINDR ! For optimizing
 
     Integer :: time     ! For seeding the random number generator
     Integer :: iAtom    ! This atom
@@ -45,6 +46,7 @@ Program NPVol
     Real(KINDR) :: opt_vol      ! Volume during optimization
     Real(KINDR) :: radmult      ! The multiplier to optimize
     Real(KINDR) :: stepsize     ! Stepsize in optimization
+    Real(KINDR) :: threshold    ! Threshold of optimization
 
     Logical :: loptimize                   ! Perform parameter optimization?
     Logical :: lfound(NUM_PROBES_IN_LOOP)  ! Is this probe in an atom?
@@ -66,12 +68,13 @@ Program NPVol
 
     filename  = ''
     nSamples  = 0
+    threshold = DEFAULT_THRESHOLD
     g%lbohr   = .false.
     loptimize = .false.
 
 !   Loop over the command line arguments.
     do
-        call GetOpt ('h?s:bo', option, optarg)
+        call GetOpt ('h?s:bot:', option, optarg)
         select case (option)
             case ('>')
                 Exit
@@ -88,6 +91,11 @@ Program NPVol
                 loptimize = .true.
             case ('b')
                 g%lbohr = .true.
+            case ('t')
+                read(optarg, *, iostat=readstat) threshold
+                if (readstat /= 0) then
+                    call quit ('Given threshold must have a decimal point')
+                end if
             case ('h')
                 call Help ()
             case ('?')
@@ -242,8 +250,8 @@ Program NPVol
 !       Calculate the initial volume with the summation method
         opt_vol = SUM(FOURTHIRD * PI * ( radmult * g%rad )**3) * BOHR2NM**3
 
-!       Continue to optimize until we reach the correct volume to 1%
-        do while (( ABS(volume - opt_vol) / volume ) > 0.01_KINDR)
+!       Continue to optimize until we reach the correct volume to a threshold
+        do while (( ABS(volume - opt_vol) / volume ) > threshold)
 
 !           Only change the step size if we went past the mark, as in
 !           stepsize positive and higher than mark or
