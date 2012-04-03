@@ -137,7 +137,7 @@ ${BLD}/build-dir-exists:
 .PRECIOUS: Makefile
 
 # Utility targets
-.PHONY: install clean cleanall
+.PHONY: install clean cleanall distclean veryclean
 
 # Installs executable to your home binary directory
 install:
@@ -151,3 +151,7 @@ clean:
 cleanall: clean
 	@rm -vf ${PROG}
 	@rm -vrf build/
+
+# Alternates for cleanall
+distclean: cleanall
+veryclean: cleanall 
