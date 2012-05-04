@@ -1,5 +1,7 @@
+syntax: glob
+
 NPVol
-.*\.mod$
-.*\.o$
-.*\.swp$
-build-dir-exists$
+*.mod
+*.o
+*.swp
+build-dir-exists
