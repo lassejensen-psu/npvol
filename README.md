@@ -126,7 +126,7 @@ second:
 	Ag -3.0 0.0 0.0
 
 Note that the coordinates are Cartesian coordinates and by default are assumed
-to be in Angstroms, although this may be overridden.  For `NPVol` and
+to be in Angstroms, although this may be overridden.  For `NPVol` an
 additional restriction is added in that the comment line must give the radii of
 each atom type in the system:
 
@@ -204,7 +204,7 @@ parallel environment.  Let's say you wanted to run on 4 processors:
 
 	mpirun -n4 NPVol nanoparticle.xyz
 	
-You must give the number of processors.  In somecases, `mpirun` is not
+You **must** give the number of processors.  In somecases, `mpirun` is not
 available, but `mpiexec` is an equivalent routine:
 
 	mpiexec -n4 NPVol nanoparticle.xyz
