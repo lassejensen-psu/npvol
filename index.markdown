@@ -2,6 +2,9 @@
 title: NPVol
 ---
 
+NPVol
+=====
+
 This program is designed to find the volume of a nanoparticle using Monte Carlo
 integration. The volume of your nanoparticle is a nice thing to know in certain
 cases, because you can use it to
