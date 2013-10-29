@@ -302,7 +302,7 @@ Subroutine reduceInt (num, name)
     call mpicheck ('Error reducing ' // name // ' from all nodes')
 #else
 !   Serial and OpenMP do nothing
-    Return
+    return
 #endif
 
 End Subroutine reduceInt

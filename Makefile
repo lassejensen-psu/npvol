@@ -58,7 +58,7 @@ else
     else
       ifeq (${FC}, gfortran)
         FCFLAGS += -fopenmp
-	FCLINKFLAGS += -lgomp
+        FCLINKFLAGS += -lgomp
       else
         ifeq (${FC}, pgf90)
           FCFLAGS += -mp
@@ -67,7 +67,7 @@ else
       endif
     endif
   endif
-  # Reguardless of serial or OpenMP, use compiler as-is
+  # Regardless of serial or OpenMP, use compiler as-is
   FCCOMP := ${FC}
 endif
 

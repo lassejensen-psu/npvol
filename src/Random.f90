@@ -2,7 +2,7 @@ Module Random
 
 !   ========================================================================
 !   Provides a thread-safe random number generator.  A 4-element integer
-!   "state" array is generated from the rng_seed, and this array is giben to
+!   "state" array is generated from the rng_seed, and this array is given to
 !   the rng_uniform function to generate a new random number.
 !   ========================================================================
 
@@ -54,7 +54,7 @@ Contains
         if (imz < 0) imz = imz + HUGE(imz)
 
 !       Normalize the random number between 0 and 1 by dividing by the
-!       largest posssible integer.
+!       largest possible integer.
         u(1) = REAL(imz, KINDR) / REAL(HUGE(imz), KINDR)
 
 !       Repeat for 2 and 3

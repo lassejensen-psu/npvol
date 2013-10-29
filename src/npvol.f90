@@ -201,11 +201,11 @@ Program NPVol
 !           touches more than three atoms.  If so, this probe is marked as a
 !           hit.  This code is not executed if the current probe has already
 !           been flagged as in/touching the nanoparticle.  It has been
-!           unrolled becase doing so is about 30% faster than a standard loop
+!           unrolled because doing so is about 30% faster than a standard loop
 !           from 1 to 100.
 !
 !           Because this code takes 1600 lines, it has been moved to
-!           another file and is included with the preprocesser. Subroutines
+!           another file and is included with the preprocessor. Subroutines
 !           are not used because they introduce overhead to call and would
 !           defeat the purpose of unrolling the loop.
             include 'check_if_probe_touches_atom.fh'
